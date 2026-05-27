@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-api
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: nexus-api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      app: nexus-api
+  template:
+    metadata:
+      labels:
+        app: nexus-api
+    spec:
+      serviceAccountName: {{ .Values.serviceAccounts.workload.name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.api.port }}
+          resources:
+            requests:
+              cpu: {{ .Values.api.resources.requests.cpu }}
+              memory: {{ .Values.api.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.api.resources.limits.cpu }}
+              memory: {{ .Values.api.resources.limits.memory }}
+          env:
+            - name: DB_HOST
+              value: "127.0.0.1"   # Cloud SQL Proxy sidecar
+            - name: DB_PORT
+              value: "{{ .Values.cloudSqlProxy.port }}"
+            - name: DB_NAME
+              value: "{{ .Values.api.env.DB_NAME }}"
+            - name: DB_USER
+              value: "{{ .Values.api.env.DB_USER }}"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-db-credentials
+                  key: password
+            - name: PUBSUB_SUBSCRIPTION
+              value: "{{ .Values.api.env.PUBSUB_SUBSCRIPTION }}"
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-redis-credentials
+                  key: host
+            - name: REDIS_PORT
+              value: "{{ .Values.api.env.REDIS_PORT }}"
+            - name: REDIS_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-redis-credentials
+                  key: auth_string
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.api.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.api.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+        # Cloud SQL Auth Proxy sidecar — no static DB credentials in the app
+        - name: cloud-sql-proxy
+          image: "{{ .Values.cloudSqlProxy.image.repository }}:{{ .Values.cloudSqlProxy.image.tag }}"
+          args:
+            - "--structured-logs"
+            - --port={{ .Values.cloudSqlProxy.port }}
+            - {{ .Values.cloudSqlProxy.instanceConnectionName }}
+          securityContext:
+            runAsNonRoot: true
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"

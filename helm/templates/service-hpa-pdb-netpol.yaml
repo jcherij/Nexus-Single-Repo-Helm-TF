@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-api
+  namespace: {{ .Values.global.namespace }}
+spec:
+  selector:
+    app: nexus-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: {{ .Values.api.port }}
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nexus-api
+  namespace: {{ .Values.global.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nexus-api
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nexus-api
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: nexus-api
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nexus-isolation
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow intra-namespace traffic only (api ↔ nav-consumer)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+  egress:
+    # Allow DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+    # Allow Cloud SQL Proxy (within pod via loopback, and GCP internal)
+    - ports:
+        - port: 3307
+          protocol: TCP
+    # Allow Pub/Sub and other GCP APIs (HTTPS)
+    - ports:
+        - port: 443
+          protocol: TCP
+    # Allow Memorystore Redis
+    - ports:
+        - port: 6379
+          protocol: TCP
