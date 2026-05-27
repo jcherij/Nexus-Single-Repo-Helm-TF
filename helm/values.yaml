@@ -1,0 +1,63 @@
+global:
+  namespace: nexus
+  gcpProjectId: ""       # set at deploy time
+  region: us-east1
+
+api:
+  image:
+    repository: gcr.io/meridian-capital/nexus-api
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+  port: 8080
+  env:
+    DB_NAME: portfolio
+    DB_USER: nexus_app
+    # DB_PASSWORD sourced from k8s secret — never in values
+    PUBSUB_SUBSCRIPTION: nexus-nav-consumer
+    REDIS_PORT: "6379"
+    # REDIS_HOST and REDIS_AUTH sourced from k8s secret
+
+navConsumer:
+  image:
+    repository: gcr.io/meridian-capital/nexus-nav-consumer
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+cloudSqlProxy:
+  image:
+    repository: gcr.io/cloud-sql-connectors/cloud-sql-proxy
+    tag: "2.11.4"
+  instanceConnectionName: ""  # set at deploy time from Terraform output
+  port: 5432
+
+serviceAccounts:
+  workload:
+    name: nexus-workload
+    # annotation set in template from gcpProjectId
+  cloudSqlProxy:
+    name: nexus-cloudsql-proxy
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  minAvailable: 1
